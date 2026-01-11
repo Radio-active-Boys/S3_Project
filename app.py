@@ -19,7 +19,6 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 S3_BUCKET = os.getenv("S3_BUCKET_NAME", "uploads")
 FLASK_PORT = int(os.getenv("FLASK_PORT", 5000))
-
 DB_PATH = "files.db"
 
 app = Flask(__name__)
@@ -67,33 +66,27 @@ init_db()
 def ensure_bucket():
     try:
         s3_client.head_bucket(Bucket=S3_BUCKET)
-        logger.info("Bucket exists: %s", S3_BUCKET)
     except ClientError:
         s3_client.create_bucket(Bucket=S3_BUCKET)
-        logger.info("Bucket created: %s", S3_BUCKET)
 
 ensure_bucket()
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
     user_id = request.form.get("user_id")
-    if not user_id:
-        return jsonify({"error": "user_id required"}), 400
-
-    if "file" not in request.files:
-        return jsonify({"error": "file required"}), 400
+    if not user_id or "file" not in request.files:
+        return jsonify({"error": "user_id and file required"}), 400
 
     file = request.files["file"]
     key = f"{user_id}/{uuid.uuid4().hex}_{file.filename}"
     public_url = f"{PUBLIC_S3_URL}/{S3_BUCKET}/{key}"
 
     try:
-        file.stream.seek(0)
         s3_client.upload_fileobj(
-            Fileobj=file.stream,
-            Bucket=S3_BUCKET,
-            Key=key,
-            ExtraArgs={"ContentType": file.mimetype or "application/octet-stream"},
+            file.stream,
+            S3_BUCKET,
+            key,
+            ExtraArgs={"ContentType": file.mimetype},
         )
 
         conn = get_db()
@@ -107,22 +100,67 @@ def upload_file():
             file.filename,
             file.mimetype,
             request.content_length,
-            public_url
+            public_url,
         ))
         conn.commit()
         conn.close()
 
-        return jsonify({
-            "message": "Uploaded",
-            "key": key,
-            "fileUrl": public_url
-        }), 201
+        return jsonify({"key": key, "fileUrl": public_url}), 201
 
     except Exception as e:
         logger.exception("Upload failed")
         return jsonify({"error": str(e)}), 500
 
-@app.route("/files", methods=["GET"])
+@app.route("/presign-upload", methods=["POST"])
+def presign_upload():
+    data = request.get_json(force=True)
+    user_id = data.get("user_id")
+    filename = data.get("filename")
+    content_type = data.get("content_type", "application/octet-stream")
+
+    if not user_id or not filename:
+        return jsonify({"error": "user_id and filename required"}), 400
+
+    key = f"{user_id}/{uuid.uuid4().hex}_{filename}"
+    public_url = f"{PUBLIC_S3_URL}/{S3_BUCKET}/{key}"
+
+    upload_url = s3_client.generate_presigned_url(
+        "put_object",
+        Params={
+            "Bucket": S3_BUCKET,
+            "Key": key,
+            "ContentType": content_type,
+        },
+        ExpiresIn=900,
+    )
+
+    return jsonify({
+        "uploadUrl": upload_url,
+        "key": key,
+        "fileUrl": public_url
+    })
+
+@app.route("/register-file", methods=["POST"])
+def register_file():
+    data = request.get_json(force=True)
+
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO files (user_id, bucket, s3_key, original_name, public_url)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        data["user_id"],
+        S3_BUCKET,
+        data["key"],
+        data["original_name"],
+        data["fileUrl"]
+    ))
+    conn.commit()
+    conn.close()
+
+    return {"message": "Registered"}
+
+@app.route("/files")
 def list_files():
     user_id = request.args.get("user_id")
     if not user_id:
@@ -130,69 +168,46 @@ def list_files():
 
     conn = get_db()
     rows = conn.execute("""
-        SELECT id, original_name, public_url, created_at
-        FROM files
-        WHERE user_id = ?
+        SELECT original_name, public_url, created_at
+        FROM files WHERE user_id = ?
         ORDER BY created_at DESC
     """, (user_id,)).fetchall()
     conn.close()
 
-    return jsonify({
-        "count": len(rows),
-        "files": [dict(row) for row in rows]
-    })
+    return jsonify({"count": len(rows), "files": [dict(r) for r in rows]})
 
 @app.route("/download", methods=["POST"])
 def download():
     key = request.json.get("key")
-    if not key:
-        return jsonify({"error": "key required"}), 400
-
     url = s3_client.generate_presigned_url(
         "get_object",
         Params={"Bucket": S3_BUCKET, "Key": key},
         ExpiresIn=300,
     )
-    return jsonify({"downloadUrl": url})
+    return {"downloadUrl": url}
 
 @app.route("/delete", methods=["POST"])
 def delete_file():
     data = request.get_json(force=True)
-    user_id = data.get("user_id")
-    key = data.get("key")
-
-    if not user_id or not key:
-        return jsonify({"error": "user_id and key required"}), 400
 
     conn = get_db()
     row = conn.execute("""
-        SELECT id FROM files WHERE user_id = ? AND s3_key = ?
-    """, (user_id, key)).fetchone()
+        SELECT id FROM files WHERE user_id=? AND s3_key=?
+    """, (data["user_id"], data["key"])).fetchone()
 
     if not row:
-        conn.close()
-        return jsonify({"error": "File not found"}), 404
+        return {"error": "File not found"}, 404
 
-    try:
-        s3_client.delete_object(Bucket=S3_BUCKET, Key=key)
-        conn.execute("DELETE FROM files WHERE id = ?", (row["id"],))
-        conn.commit()
-        conn.close()
+    s3_client.delete_object(Bucket=S3_BUCKET, Key=data["key"])
+    conn.execute("DELETE FROM files WHERE id=?", (row["id"],))
+    conn.commit()
+    conn.close()
 
-        return jsonify({"message": "Deleted", "key": key})
-
-    except Exception as e:
-        logger.exception("Delete failed")
-        return jsonify({"error": str(e)}), 500
+    return {"message": "Deleted"}
 
 @app.route("/health")
 def health():
-    return {
-        "status": "ok",
-        "bucket": S3_BUCKET,
-        "endpoint": S3_ENDPOINT
-    }
-
+    return {"status": "ok"}
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=FLASK_PORT, debug=True)
