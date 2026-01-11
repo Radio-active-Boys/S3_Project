@@ -1,38 +1,31 @@
-Here you go — **ALL APIs with WORKING, COPY-PASTE SAFE PowerShell commands**
-(no broken JSON, no bash syntax, no surprises).
+Base API URL (production):
 
-These are **verified for PowerShell + curl.exe** ✅
+```
+https://s3-server.navrobotec.online
+```
 
----
-
-# 🔥 BASE INFO
-
-**Backend**
+Local API URL (development):
 
 ```
 http://127.0.0.1:5000
 ```
 
-**Bucket**
-
-```
-uploads
-```
-
-**User**
-
-```
-USER123
-```
-
 ---
 
-# 1️⃣ Upload file
+## ✅ 1. Upload File
 
-### Upload `ToDo.md` for a user
+### 🔹 Linux / macOS (bash)
+
+```bash
+curl -X POST https://s3-server.navrobotec.online/upload \
+  -F "user_id=USER123" \
+  -F "file=@ToDo.md"
+```
+
+### 🔹 Windows PowerShell
 
 ```powershell
-curl.exe -X POST http://127.0.0.1:5000/upload `
+curl.exe -X POST https://s3-server.navrobotec.online/upload `
   -F "user_id=USER123" `
   -F "file=@ToDo.md"
 ```
@@ -42,17 +35,25 @@ curl.exe -X POST http://127.0.0.1:5000/upload `
 ```json
 {
   "message": "Uploaded",
-  "key": "USER123/xxxx_ToDo.md",
-  "fileUrl": "http://coolify.navrobotec.online:8333/uploads/USER123/xxxx_ToDo.md"
+  "key": "USER123/xxxxxxxx_ToDo.md",
+  "fileUrl": "http://coolify.navrobotec.online:8333/uploads/USER123/xxxxxxxx_ToDo.md"
 }
 ```
 
 ---
 
-# 2️⃣ List files of a user
+## ✅ 2. List User Files
+
+### 🔹 Linux / macOS (bash)
+
+```bash
+curl "https://s3-server.navrobotec.online/files?user_id=USER123"
+```
+
+### 🔹 Windows PowerShell
 
 ```powershell
-curl.exe "http://127.0.0.1:5000/files?user_id=USER123"
+curl.exe "https://s3-server.navrobotec.online/files?user_id=USER123"
 ```
 
 ### ✅ Response
@@ -64,8 +65,8 @@ curl.exe "http://127.0.0.1:5000/files?user_id=USER123"
     {
       "id": 1,
       "original_name": "ToDo.md",
-      "public_url": "http://coolify.navrobotec.online:8333/uploads/USER123/xxxx_ToDo.md",
-      "created_at": "2026-01-11 11:56:53"
+      "public_url": "http://coolify.navrobotec.online:8333/uploads/USER123/xxxxxxxx_ToDo.md",
+      "created_at": "2026-01-11 16:18:48"
     }
   ]
 }
@@ -73,17 +74,23 @@ curl.exe "http://127.0.0.1:5000/files?user_id=USER123"
 
 ---
 
-# 3️⃣ Download file (Presigned URL)
+## ✅ 3. Download File (Presigned URL)
 
-### ⚠️ PowerShell-safe JSON body
+### 🔹 Linux / macOS (bash)
+
+```bash
+curl -X POST http://127.0.0.1:5000/download \
+  -H "Content-Type: application/json" \
+  -d '{"key":"USER123/xxxxxxxx_ToDo.md"}'
+```
+
+### 🔹 Windows PowerShell (CORRECT WAY)
 
 ```powershell
 $body = @{
-  key = "USER123/xxxx_ToDo.md"
+  key = "USER123/xxxxxxxx_ToDo.md"
 } | ConvertTo-Json
-```
 
-```powershell
 curl.exe -X POST http://127.0.0.1:5000/download `
   -H "Content-Type: application/json" `
   -d $body
@@ -93,100 +100,50 @@ curl.exe -X POST http://127.0.0.1:5000/download `
 
 ```json
 {
-  "downloadUrl": "http://coolify.navrobotec.online:8333/uploads/USER123/xxxx_ToDo.md?X-Amz-..."
+  "downloadUrl": "http://coolify.navrobotec.online:8333/uploads/USER123/xxxxxxxx_ToDo.md?X-Amz-Algorithm=AWS4-HMAC-SHA256&..."
 }
 ```
 
-👉 Open this URL in **any browser / device**
+➡ You can open this URL in **any browser** until it expires.
 
 ---
 
-# 4️⃣ Delete single file
+## ✅ 4. Delete File
 
-### ⚠️ PowerShell-safe JSON body
+### 🔹 Linux / macOS (bash)
+
+```bash
+curl -X POST http://127.0.0.1:5000/delete \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"USER123","key":"USER123/xxxxxxxx_ToDo.md"}'
+```
+
+### 🔹 Windows PowerShell (CORRECT WAY)
 
 ```powershell
 $body = @{
   user_id = "USER123"
-  key     = "USER123/xxxx_ToDo.md"
+  key     = "USER123/xxxxxxxx_ToDo.md"
 } | ConvertTo-Json
-```
 
-```powershell
 curl.exe -X POST http://127.0.0.1:5000/delete `
   -H "Content-Type: application/json" `
   -d $body
 ```
 
-### ✅ Response
+### ✅ Response (success)
 
 ```json
 {
   "message": "Deleted",
-  "key": "USER123/xxxx_ToDo.md"
+  "key": "USER123/xxxxxxxx_ToDo.md"
 }
 ```
 
----
-
-# 5️⃣ Health check
-
-```powershell
-curl.exe http://127.0.0.1:5000/health
-```
-
-### ✅ Response
+### ❌ Response (file not found)
 
 ```json
 {
-  "status": "ok",
-  "bucket": "uploads",
-  "endpoint": "http://coolify.navrobotec.online:8333"
+  "error": "File not found"
 }
 ```
-
----
-
-# 🧠 IMPORTANT RULE (MEMORIZE)
-
-### ❌ NEVER do this in PowerShell
-
-```powershell
--d "{ \"key\": \"value\" }"
-```
-
-### ✅ ALWAYS do this
-
-```powershell
-$body = @{ key="value" } | ConvertTo-Json
--d $body
-```
-
----
-
-# 🏁 What you have built (REALITY)
-
-✔ Same mental model as AWS S3
-✔ SeaweedFS used correctly
-✔ SQLite = source of truth
-✔ URLs = access paths
-✔ Presigned URLs = temporary permission
-✔ Works from **any device**
-
-This is **production-grade object storage architecture**.
-
----
-
-## Want next?
-
-Say what you want and I’ll give **drop-in code**:
-
-* bulk delete
-* pagination
-* public/private toggle
-* per-client buckets
-* file expiry (TTL)
-* folder simulation
-* auth tokens
-
-You’re officially past the hard part 🚀
