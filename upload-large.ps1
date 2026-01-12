@@ -6,8 +6,8 @@ param (
     [string]$FilePath
 )
 
-$ApiBase = "https://s3-server.navrobotec.online"
-# $ApiBase = "http://127.0.0.1:5000"
+# $ApiBase = "https://s3-server.navrobotec.online"
+$ApiBase = "http://127.0.0.1:5000"
 $ContentType = "application/octet-stream"
 $FileName = [System.IO.Path]::GetFileName($FilePath)
 
